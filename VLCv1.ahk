@@ -167,7 +167,7 @@ CleanVLCTitle(title)
     }
     
     clean := Trim(clean)
-    
+    clean := StrReplace(clean, ".mp3", " ")
     if (IsOnlyVLC(clean) || StrLen(clean) < 2)
         return ""
         
