@@ -2,39 +2,7 @@
 #SingleInstance Force
 #Persistent
 
-; Timer para ocultar VLC cuando se abra
-SetTimer, CheckAndHideVLC, 1000
-return
-
-CheckAndHideVLC:
-    Process, Exist, vlc.exe
-    vlcPID := ErrorLevel
-    
-    if (vlcPID > 0)
-    {
-        WinGet, vlcWindows, List, ahk_exe vlc.exe
-        Loop, %vlcWindows%
-        {
-            vlcID := vlcWindows%A_Index%
-            
-            ; Ocultar completamente la ventana
-            WinHide, ahk_id %vlcID%
-            
-            ; Quitar de la barra de tareas y área de notificaciones
-            WinSet, Style, -0x10000000, ahk_id %vlcID%  ; Quitar WS_VISIBLE
-            WinSet, ExStyle, -0x40000, ahk_id %vlcID%   ; Quitar WS_EX_APPWINDOW (evita botón en barra de tareas)
-            WinSet, ExStyle, +0x80, ahk_id %vlcID%      ; Agregar WS_EX_TOOLWINDOW (oculta de barra de tareas)
-            WinSet, ExStyle, +0x8000000, ahk_id %vlcID% ; Agregar WS_EX_NOACTIVATE (no se activa al pasar mouse)
-            
-            ; Forzar a que no sea una ventana de primer plano
-            DllCall("SetWindowPos", "uint", vlcID, "uint", 0
-                , "int", 0, "int", 0, "int", 0, "int", 0
-                , "uint", 0x0083)  ; SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
-        }
-        SetTimer, CheckAndHideVLC, Off
-    }
-return
-
+; Atajo para mostrar/ocultar VLC
 ^!v::
     Process, Exist, vlc.exe
     vlcPID := ErrorLevel
@@ -145,15 +113,11 @@ GetTitleByTemporaryShow()
 {
     ; Hacer visible VLC momentáneamente para leer el título
     WinGet, vlcWindows, List, ahk_exe vlc.exe
-    foundTitle := ""
-    
+ 
+
     Loop, %vlcWindows%
     {
         vlcID := vlcWindows%A_Index%
-        
-        ; Guardar el estado actual
-        WinGet, savedStyle, Style, ahk_id %vlcID%
-        WinGet, savedExStyle, ExStyle, ahk_id %vlcID%
         
         ; Hacer visible momentáneamente (muy rápido)
         WinSet, Style, +0x10000000, ahk_id %vlcID%  ; WS_VISIBLE
@@ -168,10 +132,8 @@ GetTitleByTemporaryShow()
         WinGetTitle, currentTitle, ahk_id %vlcID%
         cleanTitle := CleanVLCTitle(currentTitle)
         
-        ; Restaurar estado oculto inmediatamente
-        WinHide, ahk_id %vlcID%
-        WinSet, Style, %savedStyle%, ahk_id %vlcID%
-        WinSet, ExStyle, %savedExStyle%, ahk_id %vlcID%
+        ; Ocultar nuevamente
+        ;WinHide, ahk_id %vlcID%
         
         if (cleanTitle != "" && cleanTitle != "VLC" && cleanTitle != "VLC media player")
         {
@@ -183,83 +145,121 @@ GetTitleByTemporaryShow()
     return foundTitle
 }
 
-GetTitleFromHiddenWindows()
-{
-    ; Intentar leer el título de ventanas ocultas (puede no funcionar)
-    WinGet, windowList, List, ahk_exe vlc.exe
-    
-    Loop, %windowList%
-    {
-        windowID := windowList%A_Index%
-        WinGetTitle, windowTitle, ahk_id %windowID%
-        
-        cleanTitle := CleanVLCTitle(windowTitle)
-        if (cleanTitle != "" && cleanTitle != "VLC" && cleanTitle != "VLC media player")
-        {
-            return cleanTitle
-        }
-    }
-    return ""
-}
-
 CleanVLCTitle(title)
 {
-    ; Limpiar el título para obtener solo el nombre del archivo/media
-    clean := title
+    ; Primero intentar con regex para casos específicos de VLC
+    clean := RegExReplace(title, "i)\s*-\s*(VLC|Reproductor multimedia VLC|VLC media player).*$", "")
     
-    ; Remover sufijos comunes de VLC
-    clean := RegExReplace(clean, "i)\s*-\s*VLC\s*media\s*player\s*$", "")
-    clean := RegExReplace(clean, "i)\s*-\s*VLC\s*$", "")
-    clean := RegExReplace(clean, "i)\s*\[Playing\]\s*$", "")
-    clean := RegExReplace(clean, "i)\s*\[\s*\d+%?\s*\]\s*$", "")
+    ; Si no cambió, usar el método de split
+    if (clean = title && InStr(title, " - "))
+    {
+        parts := StrSplit(title, " - ")
+        if (parts.Length() > 1)
+        {
+            ; Unir todas excepto la última
+            clean := parts[1]
+            Loop, % parts.Length() - 1
+            {
+                if (A_Index > 1)
+                    clean .= " - " . parts[A_Index]
+            }
+        }
+    }
     
-    ; Remover información de tiempo (00:00:00)
-    clean := RegExReplace(clean, "\s*\d{1,2}:\d{2}:\d{2}\s*$", "")
-    clean := RegExReplace(clean, "\s*\d{1,2}:\d{2}\s*$", "")
+    clean := Trim(clean)
     
-    ; Limpiar espacios y guiones sobrantes
-    clean := Trim(clean, " -[]")
-    
-    ; Si después de limpiar queda muy corto o es solo "VLC", considerar vacío
-    if (StrLen(clean) < 3 || clean = "VLC" || clean = "VLC media player")
+    if (IsOnlyVLC(clean) || StrLen(clean) < 2)
         return ""
-    
+        
     return clean
+}
+
+IsOnlyVLC(text)
+{
+    text := Trim(text)
+    vlcPatterns := ["VLC", "Reproductor multimedia", "Media Player", "Multimedia Player"]
+    
+    For index, pattern in vlcPatterns
+    {
+        if (RegExMatch(text, "i)^\s*" . pattern . "\s*$"))
+            return true
+    }
+    
+    return false
 }
 
 ShowCustomTooltip(text)
 {
-    ; Cerrar tooltip anterior si existe
     SetTimer, CloseSongTooltip, Off
     Gui, SongTooltip:Destroy
+    Gui, SongTooltipBorder:Destroy
+
+    ; --- CONFIGURACIÓN ---
+    bgColor := "101010"         ; Fondo del tooltip
+    borderColor := "404040"     ; Color del borde
+    fontColor := "F3F3F3"       ; Color del texto
+    fontName := "Calibri"
+    fontSize := 10
+    padding := 5               ; Espaciado interno uniforme
+    maxWidth := 1920             ; Ancho máximo más razonable
+    borderWidth := 1            ; Grosor del borde
+    ; ----------------------
+
+    ; Crear GUI temporal para medir texto
+    Gui, SongTooltipTemp:New, +ToolWindow
+    Gui, SongTooltipTemp:Font, s%fontSize% Bold, %fontName%
+    Gui, SongTooltipTemp:Add, Text, R1, %text%
+    GuiControlGet, textSize, SongTooltipTemp:Pos, Static1
+    Gui, SongTooltipTemp:Destroy
+
+    ; Calcular dimensiones del tooltip
+    width := textSizeW + (padding * 2)
+    height := textSizeH + (padding * 2)
     
-    ; Crear tooltip personalizado
-    Gui, SongTooltip:-Caption +ToolWindow +AlwaysOnTop
-    Gui, SongTooltip:Color, 000000
-    Gui, SongTooltip:Font, cF3F3F3 s10, Segoe UI
+    ; Aplicar límites
+    if (width > maxWidth)
+        width := maxWidth
+        ; Versión simplificada para esquina inferior derecha
+    WinGetPos, , , , taskbarHeight, ahk_class Shell_TrayWnd
+    posX := A_ScreenWidth - width - 1
+    posY := A_ScreenHeight - height - taskbarHeight
+
+    ; Calcular posiciones del borde
+    borderX := posX - borderWidth
+    borderY := posY - borderWidth
+    borderW := width + (borderWidth * 2)
+    borderH := height + (borderWidth * 2)
+
+    ; --- GUI del borde ---
+    Gui, SongTooltipBorder:New, -Caption +ToolWindow +AlwaysOnTop +E0x20
+    Gui, SongTooltipBorder:Color, %borderColor%
+    Gui, SongTooltipBorder:Show, x%borderX% y%borderY% w%borderW% h%borderH% NoActivate
+
+    ; --- GUI del contenido ---
+    Gui, SongTooltip:New, -Caption +ToolWindow +AlwaysOnTop +E0x20
+    Gui, SongTooltip:Color, %bgColor%
+    Gui, SongTooltip:Font, s%fontSize% c%fontColor% Bold, %fontName%
     
-    ; Calcular posición y dimensiones
-    width := 400  ; Más ancho para nombres largos
-    height := 80
-    posX := A_ScreenWidth - width - 20
-    posY := A_ScreenHeight - height - 20
+    ; Calcular área de texto con padding
+    textWidth := width - (padding * 2)
+    textHeight := height - (padding * 2)
     
-    textWidth := width - 20
-    textHeight := height - 20
-    
-    Gui, SongTooltip:Add, Text, x10 y10 w%textWidth% h%textHeight% Center, %text%
-    Gui, SongTooltip:Show, x%posX% y%posY% w%width% h%height%, SongTooltipWindow
-    
-    SetTimer, CloseSongTooltip, 3000
+    ; Agregar texto centrado con padding uniforme
+    Gui, SongTooltip:Add, Text, x%padding% y%padding% w%textWidth% h%textHeight% Center, %text%
+    Gui, SongTooltip:Show, x%posX% y%posY% w%width% h%height% NoActivate, SongTooltipWindow
+
+    ; Cerrar automáticamente
+    SetTimer, CloseSongTooltip, 5000
 }
+
+CloseSongTooltip:
+    Gui, SongTooltip:Destroy
+    Gui, SongTooltipBorder:Destroy
+    SetTimer, CloseSongTooltip, Off
+return
 
 !Numpad0::
     ShowSongTooltip()
-return
-
-CloseSongTooltip:
-    SetTimer, CloseSongTooltip, Off
-    Gui, SongTooltip:Destroy
 return
 
 ^!x::ExitApp
