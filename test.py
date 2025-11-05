@@ -1,23 +1,64 @@
-import re
-import urllib.parse
+import psutil
+import os
+import glob
 
-def decode_uri(uri: str) -> str:
-    """Convierte file:///C:/...%20... a ruta legible"""
-    if uri.startswith("file:///"):
-        uri = uri[8:]
-    elif uri.startswith("file://"):
-        uri = uri[7:]
-    return urllib.parse.unquote(uri.strip('"').strip())
+def find_vlc_process():
+    """Encontrar proceso de VLC"""
+    for proc in psutil.process_iter(['pid', 'name']):
+        if 'vlc' in proc.info['name'].lower():
+            return proc.info['pid']
+    return None
 
-# Texto simulado (como en tu .ini)
-recent_raw = '"file:///C:/Users/Marc/Downloads/Duki%20zevra%2025/Duki_%20Bzrp%20Music%20Sessions,%20Vol.%2050.mp3", file:///C:/Users/Marc/Downloads/Constelación.mp3, file:///C:/Users/Marc/Downloads/Barro.mp3'
+def scan_vlc_temp_files():
+    """Buscar archivos temporales de VLC"""
+    temp_locations = [
+        os.environ.get('TEMP', ''),
+        os.environ.get('TMP', ''),
+        os.path.join(os.environ.get('USERPROFILE', ''), 'AppData', 'Local', 'Temp'),
+        os.path.join(os.environ.get('USERPROFILE', ''), 'AppData', 'Roaming', 'vlc')
+    ]
+    
+    vlc_files = []
+    for location in temp_locations:
+        if os.path.exists(location):
+            # Buscar archivos que puedan contener info de playlist
+            patterns = [
+                os.path.join(location, '*vlc*'),
+                os.path.join(location, '*playlist*'),
+                os.path.join(location, 'vlc-*')
+            ]
+            for pattern in patterns:
+                vlc_files.extend(glob.glob(pattern))
+    
+    return vlc_files
 
-# Nueva regex: captura rutas con o sin comillas, incluso si contienen comas
-uris = re.findall(r'"(file://[^"]+)"|(?<!")\b(file://[^,]+)', recent_raw)
+def get_vlc_info_dynamic():
+    pid = find_vlc_process()
+    if pid:
+        print(f"✅ VLC encontrado (PID: {pid})")
+        
+        # Intentar leer información del proceso
+        try:
+            process = psutil.Process(pid)
+            print(f"📁 Directorio: {process.cwd()}")
+            print(f"🎯 Ejecutable: {process.exe()}")
+            print(f"🔧 Argumentos: {process.cmdline()}")
+            
+            # Archivos abiertos por VLC
+            open_files = []
+            try:
+                open_files = process.open_files()
+                print("\n📂 Archivos abiertos:")
+                for file in open_files[:10]:  # Mostrar solo los primeros 10
+                    if any(ext in file.path.lower() for ext in ['.mp3', '.mp4', '.avi', '.mkv', '.m4a']):
+                        print(f"   🎵 {os.path.basename(file.path)}")
+            except psutil.AccessDenied:
+                print("   ⚠️  No se pueden leer archivos abiertos (permisos)")
+                
+        except Exception as e:
+            print(f"❌ Error al leer proceso: {e}")
+    else:
+        print("❌ VLC no está ejecutándose")
 
-# Flatten y decodificar
-uris = [decode_uri(u[0] or u[1]) for u in uris if (u[0] or u[1])]
-
-print("🎧 URIs encontradas:")
-for i, uri in enumerate(uris, 1):
-    print(f"{i:02d}. {uri}")
+# Ejecutar escaneo
+get_vlc_info_dynamic()
