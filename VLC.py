@@ -13,10 +13,56 @@ from pathlib import Path
 import psutil
 import tempfile
 import shutil
+import tempfile, os, xml.etree.ElementTree as ET
+from pathlib import Path
+
+# ---------- registra namespaces UNA vez ----------
+import os, tempfile, xml.etree.ElementTree as ET
+
+# registra los namespaces (una sola vez al importar)
+ET.register_namespace('', 'http://xspf.org/ns/0/')
+ET.register_namespace('vlc', 'http://www.videolan.org/vlc/playlist/ns/0/')
+
+def build_rotated_xspf(original_path: str, idx: int) -> str:
+    tmp_playlist = os.path.join(tempfile.gettempdir(), "vlc_rotada.xspf")
+
+    tree = ET.parse(original_path)
+    root = tree.getroot()
+
+    # extrae pistas (con URI completa)
+    tracks = root.findall('.//{http://xspf.org/ns/0/}track')
+
+    # rotar
+    rotated = tracks[idx:] + tracks[:idx]
+
+    # limpiar trackList
+    tracklist = root.find('.//{http://xspf.org/ns/0/}trackList')
+    tracklist.clear()
+
+# 4. re-numerar <vlc:id> de cada track
+    for new_idx, trk in enumerate(rotated):
+        vlc_ext = trk.find('{http://xspf.org/ns/0/}extension')
+        if vlc_ext is not None:
+            vlc_id = vlc_ext.find('{http://www.videolan.org/vlc/playlist/ns/0/}id')
+            if vlc_id is not None:
+                vlc_id.text = str(new_idx)
+                print(f'     └─ vlc:id {vlc_id.text} → {new_idx}')
+            else:
+                print('     └─ vlc:id no encontrado')
+        else:
+            print('     └─ extension no encontrada')
+        # volcar rotadas
+    for trk in rotated:
+        tracklist.append(trk)
+
+    # guardar SIN default_namespace → usa prefijos ns0, vlc, etc.
+    tree.write(tmp_playlist, encoding='utf-8', xml_declaration=True)
+    return tmp_playlist
 
 # ============================================================
 # 🔹 Utilidades VLC
 # ============================================================
+
 def find_vlc():
     """Busca la ruta de VLC en Windows dinámicamente."""
     common_paths = [
@@ -239,16 +285,26 @@ class VLCController:
         for i, track in enumerate(playlist, 1):
             listbox.insert(tk.END, f"{i:02d}. {track['title']}")
 
-        def on_select(event):
-            selection = listbox.curselection()
-            if not selection: return
-            index = selection[0]
-            song = playlist[index]['title']
-            self.show_custom_tooltip(f"▶️ {song}")
-
-            close_vlc()  # Cierra VLC existente
-
-            vlc_path = find_vlc()
+        def on_select(event, lst=listbox, pl=playlist, self=self):
+            sel = lst.curselection()
+            if not sel:
+                return
+            idx = sel[0]
+        
+            close_vlc()
+            vlc = find_vlc()
+            if not vlc:
+                self.show_custom_tooltip("❌ VLC no encontrado")
+                return
+        
+            # 1. Crear lista rotada
+            rotated_path = build_rotated_xspf(playlist_path, idx)
+        
+            # 2. Lanzar VLC limpio
+            subprocess.Popen([vlc, rotated_path],
+                                cwd=os.path.dirname(vlc))
+        
+            self.show_custom_tooltip(f"▶️ {pl[idx]['title']}")
 
         listbox.bind("<ButtonRelease-1>", on_select)
         listbox.bind("<Double-Button-1>", on_select)
