@@ -15,6 +15,7 @@ import tempfile
 import shutil
 import tempfile, os, xml.etree.ElementTree as ET
 from pathlib import Path
+import win32gui
 
 # ---------- registra namespaces UNA vez ----------
 import os, tempfile, xml.etree.ElementTree as ET
@@ -246,6 +247,43 @@ class VLCController:
             print(f"❌ Error al leer la playlist: {e}")
         return playlist
 
+    def close_vlc_with_keyboard(self):
+        print("🛑 Cerrando VLC y reproduciendo MP3 de la carpeta...")
+        close_vlc()  # primero cerramos lo que esté sonando
+    
+        # Obtener la carpeta activa en Explorer
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch("Shell.Application")
+            hwnd = win32gui.GetForegroundWindow()
+            for window in shell.Windows():
+                if window.hwnd == hwnd:
+                    folder = window.Document.Folder
+                    folder_path = folder.Self.Path
+                    mp3_files = sorted([f for f in os.listdir(folder_path)
+                                        if f.lower().endswith('.mp3')])
+                    if not mp3_files:
+                        self.show_custom_tooltip("⚠️ Carpeta sin MP3")
+                        return
+    
+                    vlc = find_vlc()
+                    if not vlc:
+                        self.show_custom_tooltip("❌ VLC no encontrado")
+                        return
+    
+                    # Construir lista de rutas completas
+                    full_paths = [os.path.join(folder_path, f) for f in mp3_files]
+    
+                    # Lanzar VLC con los archivos como argumentos
+                    subprocess.Popen([vlc] + full_paths,
+                                     cwd=os.path.dirname(vlc))
+    
+                    self.show_custom_tooltip(f"▶️ {len(mp3_files)} MP3 encolados")
+                    return
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            self.show_custom_tooltip("❌ No se pudo leer la carpeta")
+        
     def show_playlist_selector(self):
         playlist_path = self.get_vlc_playlist_path()
         if not playlist_path:
@@ -337,6 +375,9 @@ def main():
     keyboard.add_hotkey('alt+num 0', controller.show_song_tooltip)
     keyboard.add_hotkey('ctrl+alt+x', lambda: os._exit(0))
     keyboard.add_hotkey('alt+num enter', controller.show_playlist_selector)
+    keyboard.add_hotkey('alt+decimal', controller.close_vlc_with_keyboard)
+    
+    
 
     controller.root.mainloop()
 
