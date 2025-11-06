@@ -175,7 +175,7 @@ class VLCController:
         self.tooltip_window.update_idletasks()
         width, height = self.tooltip_window.winfo_reqwidth(), self.tooltip_window.winfo_reqheight()
         screen_width, screen_height = self.tooltip_window.winfo_screenwidth(), self.tooltip_window.winfo_screenheight()
-        self.tooltip_window.geometry(f'+{screen_width - width - 20}+{screen_height - height - 60}')
+        self.tooltip_window.geometry(f'+{screen_width - width}+{screen_height - height - 30}')
         self.tooltip_window.deiconify()
         self.tooltip_window.lift()
 
@@ -197,6 +197,10 @@ class VLCController:
             self.tooltip_window = None
 
     def show_song_tooltip(self):
+        pid = self.find_vlc_process()
+        if not pid:
+            print("❌ VLC no está ejecutándose")
+            return None
         info = get_current_song()
         print(f"ℹ️ Tooltip info: {info}")
         if self.root:
@@ -305,6 +309,7 @@ class VLCController:
                                 cwd=os.path.dirname(vlc))
         
             self.show_custom_tooltip(f"▶️ {pl[idx]['title']}")
+            self.playlist_window.destroy()
 
         listbox.bind("<ButtonRelease-1>", on_select)
         listbox.bind("<Double-Button-1>", on_select)
@@ -313,11 +318,12 @@ class VLCController:
         self.playlist_window.update_idletasks()
         w, h = self.playlist_window.winfo_reqwidth(), self.playlist_window.winfo_reqheight()
         sw, sh = self.playlist_window.winfo_screenwidth(), self.playlist_window.winfo_screenheight()
-        self.playlist_window.geometry(f"+{sw - w - 40}+{sh - h - 80}")
+        self.playlist_window.geometry(f"+{sw - w}+{sh - h - 30}")
         self.playlist_window.deiconify()
         self.playlist_window.lift()
         self.playlist_window.focus_force()
         self.playlist_window.bind("<Escape>", lambda e: self.playlist_window.destroy())
+        self.playlist_window.bind("<FocusOut>", lambda e: self.playlist_window.destroy())
         print("🪄 Playlist selector abierto.")
 
 # ============================================================
