@@ -16,6 +16,7 @@ import shutil
 import tempfile, os, xml.etree.ElementTree as ET
 from pathlib import Path
 import win32gui
+from urllib.parse import unquote
 
 # ---------- registra namespaces UNA vez ----------
 import os, tempfile, xml.etree.ElementTree as ET
@@ -230,22 +231,31 @@ class VLCController:
             print(f"❌ Error al leer proceso: {e}")
             return None
 
-    def read_xspf_playlist(self, playlist_path):
+    def read_xspf_playlist(self,playlist_path):
         playlist = []
         try:
             tree = ET.parse(playlist_path)
             root = tree.getroot()
-            ns = {'ns': 'http://xspf.org/ns/0/'}
+            ns = {'ns': 'http://xspf.org/ns/0/'}  # sin espacio final
+
             for track in root.findall('.//ns:track', ns):
-                title = track.find('ns:title', ns)
                 location = track.find('ns:location', ns)
+                title_node = track.find('ns:title', ns)
+
+                # Título explícito o nombre del archivo
+                if title_node is not None and title_node.text:
+                    title = title_node.text
+                else:
+                    title = Path(unquote(location.text)).stem if location is not None else "Desconocido"
+
                 playlist.append({
-                    "title": title.text if title is not None else "Desconocido",
-                    "location": decode_uri(location.text) if location is not None else ""
+                    "title": title,
+                    "location": unquote(location.text) if location is not None else ""
                 })
         except Exception as e:
             print(f"❌ Error al leer la playlist: {e}")
         return playlist
+
 
     def close_vlc_with_keyboard(self):
         print("🛑 Cerrando VLC y reproduciendo MP3 de la carpeta...")
@@ -322,12 +332,15 @@ class VLCController:
             activestyle="none", yscrollcommand=scrollbar.set
         )
         listbox.pack(side=tk.LEFT, fill=tk.BOTH)
+        listbox.focus_set()
+        listbox.grab_set() 
         scrollbar.config(command=listbox.yview)
 
         for i, track in enumerate(playlist, 1):
             listbox.insert(tk.END, f"{i:02d}. {track['title']}")
 
         def on_select(event, lst=listbox, pl=playlist, self=self):
+            print("🪄 Selección de playlist realizada." + str(lst.curselection()))
             sel = lst.curselection()
             if not sel:
                 return
@@ -349,8 +362,9 @@ class VLCController:
             self.show_custom_tooltip(f"▶️ {pl[idx]['title']}")
             self.playlist_window.destroy()
 
-        listbox.bind("<ButtonRelease-1>", on_select)
-        listbox.bind("<Double-Button-1>", on_select)
+        def click(event):
+            print("FUUUCK.")
+        listbox.bind("<<ListboxSelect>>", on_select)
 
         # Posicionar ventana
         self.playlist_window.update_idletasks()
