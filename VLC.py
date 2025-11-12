@@ -340,38 +340,27 @@ class VLCController:
             listbox.insert(tk.END, f"{i:02d}. {track['title']}")
 
         def on_select(event, lst=listbox, pl=playlist, self=self):
+            print("🪄 Selección de playlist realizada." + str(lst.curselection()))
             sel = lst.curselection()
             if not sel:
                 return
-            index = sel[0]
-            
+            idx = sel[0]
+        
+            close_vlc()
             vlc = find_vlc()
             if not vlc:
                 self.show_custom_tooltip("❌ VLC no encontrado")
                 return
         
-            if not playlist_path or not os.path.exists(playlist_path):
-                return False
-
-            try:
-                # Parsear el XSPF para obtener la ubicación real del archivo
-                tree = ET.parse(playlist_path)
-                root = tree.getroot()
-                ns = {'xspf': 'http://xspf.org/ns/0/'}
-                tracks = root.findall('.//xspf:track', ns)
-                if index < len(tracks):
-                    track = tracks[index]
-                    location = track.find('xspf:location', ns)
-                    if location is not None:
-                        track_url = location.text
-                        decoded = urllib.parse.unquote(track_url)
-                        file_path = decoded.replace('file:///', '')
-                        # Abrir el archivo con VLC
-                        os.startfile(file_path)
-                        self.playlist_window.destroy()
-                        return True
-            except Exception as e:
-                print(f"Error al reproducir pista: {e}")            
+            # 1. Crear lista rotada
+            rotated_path = build_rotated_xspf(playlist_path, idx)
+        
+            # 2. Lanzar VLC limpio
+            subprocess.Popen([vlc, rotated_path],
+                                cwd=os.path.dirname(vlc))
+        
+            self.show_custom_tooltip(f"▶️ {pl[idx]['title']}")
+            self.playlist_window.destroy()           
     
         listbox.bind("<<ListboxSelect>>", on_select)
 
