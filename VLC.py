@@ -310,121 +310,128 @@ class VLCController:
 
     # --- Selector gráfico de playlist ---
     def show_playlist_selector(self):
-       playlist_path = self.get_vlc_playlist_path()
-       if not playlist_path:
-           self.show_custom_tooltip("[Mus] No se encontró playlist activa")
-           return
+        playlist_path = self.get_vlc_playlist_path()
+        if not playlist_path:
+            self.show_custom_tooltip("[Mus] No se encontró playlist activa")
+            return
+ 
+        playlist = self.read_xspf_playlist(playlist_path)
+        if not playlist:
+            self.show_custom_tooltip("[Mus] Playlist vacía")
+            return
+ 
+        self.close_tooltip()
+        if self.playlist_window:
+            try:
+                self.playlist_window.destroy()
+            except:
+                pass
+            self.playlist_window = None
+ 
+        # --- Crear ventana ---
+        self.playlist_window = tk.Toplevel(self.root)
+        w = self.playlist_window
+ 
+        w.title("VLC Playlist")
+        w.overrideredirect(True)
+        w.attributes('-topmost', True)
+        w.configure(bg="#101010")
+ 
+        # --- Marco con borde suave ---
+        outer = tk.Frame(w, bg="#2A2A2A", bd=1, relief="solid")
+        outer.pack(padx=3, pady=3)
+ 
+        # --- Header moderno (NO draggable) ---
+        header = tk.Frame(outer, bg="#262626")
+        header.pack(fill=tk.X)
+        actual = get_current_song()
+        tk.Label(
+            header,
+            text=actual,
+            fg="#EDEDED",
+            bg="#262626",
+            font=("Calibri", 15, "bold"),
+            pady=6
+        ).pack(side=tk.LEFT, padx=10)
+ 
+        # --- Área de lista ---
+        list_frame = tk.Frame(outer, bg="#1A1A1A", bd=0)
+        list_frame.pack(padx=5, pady=5)
+        
+        listbox = tk.Listbox(
+            list_frame, font=tkfont.Font(family="Calibri", size=10, weight="bold"),
+            bg="#101010", fg="#F3F3F3", selectbackground="#2E8B57",
+            selectforeground="#FFFFFF", width=50, height=15,
+            activestyle="none"
+        )
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH)
+        listbox.focus_set()
+        listbox.grab_set()
+        
+        # -- crear scrollbar premium enlazada al listbox --
+        premium_scroll = ThinScrollbar(list_frame, listbox, width=8,
+                                       bg="#1A1A1A", track="#0F0F0F", handle="#3C3D3C")
+        premium_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # -- conectar set del listbox con la scrollbar --
+        listbox.configure(yscrollcommand=premium_scroll.set)
+        # --- Items con estilo zebra ---
+        for i, track in enumerate(playlist, 1):
+            name = track['title']
+            icon = "●"  # punto redondo unicode
+            idx = listbox.size()
+            
+            listbox.insert(tk.END, f"{icon} {name}")
+            
+            # Colorear según estado
+            listbox.itemconfig(
+                idx,
+                fg="#40FF40" if name == actual else "#FFFFFF"
+            )           
+            if i % 2 == 0:
+                listbox.itemconfig(tk.END, bg="#151515")
+ 
+        def on_select(event):
+            sel = listbox.curselection()
+            if not sel:
+                return
+ 
+            idx = sel[0]
+            vlc_state = get_vlc_window_state()
+ 
+            close_vlc()
+            vlc = find_vlc()
+            if not vlc:
+                self.show_custom_tooltip("[X] VLC no encontrado")
+                return
+ 
+            rotated_path = build_rotated_xspf(playlist_path, idx)
+ 
+            if vlc_state in ("minimized", "background"):
+                subprocess.Popen([vlc, rotated_path, "--qt-start-minimized"],
+                                 cwd=os.path.dirname(vlc))
+            else:
+                subprocess.Popen([vlc, rotated_path], cwd=os.path.dirname(vlc))
+ 
+            self.show_custom_tooltip(f"> {playlist[idx]['title']}")
+            w.destroy()
+ 
+        listbox.bind("<<ListboxSelect>>", on_select)
 
-       playlist = self.read_xspf_playlist(playlist_path)
-       if not playlist:
-           self.show_custom_tooltip("[Mus] Playlist vacía")
-           return
+        # --- Posicionamiento inferior derecha ---
+        w.update_idletasks()
+        ww, hh = w.winfo_reqwidth(), w.winfo_reqheight()
+        sw, sh = w.winfo_screenwidth(), w.winfo_screenheight()
+        w.geometry(f"+{sw - ww}+{sh - hh - 30}")
+ 
+        # --- Cierres existentes que quieres mantener ---
+        w.deiconify()
+        w.lift()
+        w.focus_force()
+        w.bind("<Escape>", lambda e: w.destroy())
+        w.bind("<FocusOut>", lambda e: w.destroy())
 
-       self.close_tooltip()
-       if self.playlist_window:
-           try:
-               self.playlist_window.destroy()
-           except:
-               pass
-           self.playlist_window = None
-
-       # --- Crear ventana ---
-       self.playlist_window = tk.Toplevel(self.root)
-       w = self.playlist_window
-
-       w.title("VLC Playlist")
-       w.overrideredirect(True)
-       w.attributes('-topmost', True)
-       w.configure(bg="#101010")
-
-       # --- Marco con borde suave ---
-       outer = tk.Frame(w, bg="#2A2A2A", bd=1, relief="solid")
-       outer.pack(padx=3, pady=3)
-
-       # --- Header moderno (NO draggable) ---
-       header = tk.Frame(outer, bg="#262626")
-       header.pack(fill=tk.X)
-
-       tk.Label(
-           header,
-           text=get_current_song(),
-           fg="#EDEDED",
-           bg="#262626",
-           font=("Segoe UI", 10, "bold"),
-           pady=6
-       ).pack(side=tk.LEFT, padx=10)
-
-       # --- Área de lista ---
-       list_frame = tk.Frame(outer, bg="#1A1A1A", bd=0)
-       list_frame.pack(padx=5, pady=5)
-
-       scrollbar = tk.Scrollbar(list_frame, bg="#202020")
-       scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-       listbox = tk.Listbox(
-           list_frame,
-           font=tkfont.Font(family="Calibri", size=10, weight="bold"),
-           bg="#111111",
-           fg="#F3F3F3",
-           selectbackground="#2E8B57",
-           selectforeground="#FFFFFF",
-           width=50,
-           height=15,
-           activestyle="none",
-           yscrollcommand=scrollbar.set,
-           bd=0,
-           highlightthickness=0
-       )
-       listbox.pack(side=tk.LEFT, fill=tk.BOTH)
-       scrollbar.config(command=listbox.yview)
-
-       # --- Items con estilo zebra ---
-       for i, track in enumerate(playlist, 1):
-           listbox.insert(tk.END, f"{i:02d}. {track['title']}")
-           if i % 2 == 0:
-               listbox.itemconfig(tk.END, bg="#151515")
-
-       def on_select(event):
-           sel = listbox.curselection()
-           if not sel:
-               return
-
-           idx = sel[0]
-           vlc_state = get_vlc_window_state()
-
-           close_vlc()
-           vlc = find_vlc()
-           if not vlc:
-               self.show_custom_tooltip("[X] VLC no encontrado")
-               return
-
-           rotated_path = build_rotated_xspf(playlist_path, idx)
-
-           if vlc_state in ("minimized", "background"):
-               subprocess.Popen([vlc, rotated_path, "--qt-start-minimized"],
-                                cwd=os.path.dirname(vlc))
-           else:
-               subprocess.Popen([vlc, rotated_path], cwd=os.path.dirname(vlc))
-
-           self.show_custom_tooltip(f"> {playlist[idx]['title']}")
-           w.destroy()
-
-       listbox.bind("<<ListboxSelect>>", on_select)
-
-       # --- Posicionamiento inferior derecha ---
-       w.update_idletasks()
-       ww, hh = w.winfo_reqwidth(), w.winfo_reqheight()
-       sw, sh = w.winfo_screenwidth(), w.winfo_screenheight()
-       w.geometry(f"+{sw - ww}+{sh - hh - 30}")
-
-       # --- Cierres existentes que quieres mantener ---
-       w.deiconify()
-       w.lift()
-       w.focus_force()
-       w.bind("<Escape>", lambda e: w.destroy())
-       w.bind("<FocusOut>", lambda e: w.destroy())
-
-       print("[GUI] Playlist selector abierto.")
+        print("[GUI] Playlist selector abierto.")
 
 
 import win32process
@@ -472,6 +479,138 @@ def get_vlc_window_state():
         return "maximized"
     else:
         return "normal"
+
+# ---------------- Clase de scrollbar ----------------
+class ThinScrollbar(tk.Canvas):
+    def __init__(self, parent, listbox, width=8, min_handle=24,
+                 bg="#1A1A1A", track="#111111", handle="#3FA860", *args, **kwargs):
+        super().__init__(parent, width=width, highlightthickness=0, bd=0, bg=bg, *args, **kwargs)
+        self.listbox = listbox
+        self.track_color = track
+        self.handle_color = handle
+        self.min_handle = min_handle
+
+        # Dibujar canal (todo el alto)
+        self.track = self.create_rectangle(0, 0, width, 0, fill=self.track_color, outline=self.track_color)
+        # Dibujar handle inicial (se actualizará via set)
+        self.handle = self.create_rectangle(0, 0, width, min_handle, fill=self.handle_color, outline=self.handle_color, tags=("handle",))
+
+        # Bindings para arrastrar el handle y click en canal
+        self.tag_bind("handle", "<Button-1>", self._on_handle_press)
+        self.tag_bind("handle", "<B1-Motion>", self._on_handle_drag)
+        self.bind("<Button-1>", self._on_track_click)
+
+        # Rueda del ratón (cuando el cursor esté encima del listbox o la scrollbar)
+        self.listbox.bind("<Enter>", lambda e: self._bind_mousewheel())
+        self.listbox.bind("<Leave>", lambda e: self._unbind_mousewheel())
+        self.bind("<Enter>", lambda e: self._bind_mousewheel())
+        self.bind("<Leave>", lambda e: self._unbind_mousewheel())
+
+        # Estado para drag
+        self._drag_start_y = None
+        self._handle_start_y = None
+
+        # Forzar tamaño inicial del track
+        self.update_idletasks()
+        self._update_track_size()
+
+        # Si el listbox cambia tamaño / items, la lista llamará a set() y eso actualiza handle
+
+    # Called by listbox as yscrollcommand: set(first, last)
+    def set(self, first, last):
+        try:
+            f = float(first)
+            l = float(last)
+        except Exception:
+            return
+        self._update_track_size()
+        track_h = int(self.winfo_height())
+        handle_h = max(self.min_handle, int((l - f) * track_h))
+        handle_y = int(f * track_h)
+        # clamp
+        if handle_y + handle_h > track_h:
+            handle_y = track_h - handle_h
+        if handle_y < 0:
+            handle_y = 0
+        # update coords
+        w = int(self.cget("width"))
+        self.coords(self.handle, 0, handle_y, w, handle_y + handle_h)
+
+    # internal: click on handle
+    def _on_handle_press(self, event):
+        self._drag_start_y = event.y_root
+        coords = self.coords(self.handle)
+        self._handle_start_y = coords[1]
+
+    # internal: dragging
+    def _on_handle_drag(self, event):
+        if self._drag_start_y is None:
+            return
+        dy = event.y_root - self._drag_start_y
+        new_top = self._handle_start_y + dy
+        track_h = int(self.winfo_height())
+        _, _, w, h = self.coords(self.handle)
+        handle_h = int(h - 0)  # height of handle
+        # clamp
+        new_top = max(0, min(new_top, track_h - handle_h))
+        # move handle
+        self.coords(self.handle, 0, new_top, int(self.cget("width")), new_top + handle_h)
+        # compute fraction and scroll listbox
+        frac = new_top / max(1, (track_h - handle_h))
+        self.listbox.yview_moveto(frac)
+
+    # internal: click on track to page up/down
+    def _on_track_click(self, event):
+        # si hago click encima del handle, lo maneja el handle binding
+        x, y = event.x, event.y
+        hx1, hy1, hx2, hy2 = self.coords(self.handle)
+        track_h = int(self.winfo_height())
+        handle_h = int(hy2 - hy1)
+        if hy1 <= y <= hy2:
+            return  # click sobre handle -> no paginar
+        # si click arriba del handle -> page up, abajo -> page down
+        fraction = handle_h / max(1, track_h)
+        if y < hy1:
+            # page up
+            self.listbox.yview_scroll(-int(self.listbox.size() * fraction // 1), "units")
+        else:
+            # page down
+            self.listbox.yview_scroll(int(self.listbox.size() * fraction // 1), "units")
+
+    # mousewheel binding helpers (cross-platform)
+    def _bind_mousewheel(self):
+        # Windows / MacOS (delta)
+        self.listbox.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Linux (Button-4/5)
+        self.listbox.bind_all("<Button-4>", self._on_mousewheel)
+        self.listbox.bind_all("<Button-5>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self):
+        self.listbox.unbind_all("<MouseWheel>")
+        self.listbox.unbind_all("<Button-4>")
+        self.listbox.unbind_all("<Button-5>")
+
+    def _on_mousewheel(self, event):
+        # cross-platform normalization
+        if event.num == 4:      # Linux scroll up
+            delta = -1
+        elif event.num == 5:    # Linux scroll down
+            delta = 1
+        else:
+            # Windows/OSX: event.delta is multiple of 120
+            delta = -1 * int(event.delta / 120)
+        # scroll listbox (units)
+        self.listbox.yview_scroll(delta, "units")
+        # after scrolling, request the listbox to call yscrollcommand -> this updates handle
+        return "break"
+
+    def _update_track_size(self):
+        # ensure track rectangle fills canvas
+        h = max(1, self.winfo_height())
+        w = int(self.cget("width"))
+        self.coords(self.track, 0, 0, w, h)
+
+# ---------------- Fin de clase ----------------
 
 # ------------------------------------------------------------------
 #  Punto de entrada
